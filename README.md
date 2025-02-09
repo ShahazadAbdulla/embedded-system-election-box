@@ -31,22 +31,7 @@ How to Install:
 Open Arduino IDE
 Go to Sketch → Include Library → Manage Libraries
 Search for the required library and click Install
-🔹 Project Structure
-bash
-Copy
-Edit
-Election-Box/
-│── src/
-│   └── voting/
-│       └── voting.ino  # Main voting program
-│── test/  # Test programs for individual components
-│   ├── FingerPrintTest/
-│   │   └── FingerPrintTest.ino  # Fingerprint sensor test
-│   ├── KeyPadTesting/
-│   │   └── KeyPadTesting.ino  # Keypad input test
-│   ├── LCDTest/
-│   │   └── LCDTest.ino  # LCD display test
-└── README.md  # Project documentation
+
 🔹 How It Works
 1️⃣ Admin Login – The system starts in admin mode, requiring a PIN (0000) for access.
 2️⃣ Enrollment – Admin can register new voters by scanning and saving their fingerprints.
