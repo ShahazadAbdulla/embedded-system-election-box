@@ -31,25 +31,18 @@ Make sure you have the following libraries installed in **Arduino IDE**:
 #include <Adafruit\_Fingerprint.h>  // Fingerprint Sensor Library
 #include <Keypad.h>                // Keypad Library
 #include <Wire.h>
-#include <LiquidCrystal\_I2C.h>      // LCD Display Library
-### **How to Install:**
-1. Open **Arduino IDE**
-1. Go to **Sketch → Include Library → Manage Libraries**
-1. Search for the required library and **click Install**
+#include <LiquidCrystal_I2C.h>      // LCD Display Library
+How to Install:
+Open Arduino IDE
+Go to Sketch → Include Library → Manage Libraries
+Search for the required library and click Install
 
-## **🔹 Project Structure**
-Election-Box/
-│── src/
-│   └── voting/
-│       └── voting.ino  # Main voting program
-│── test/  # Test programs for individual components
-│   ├── FingerPrintTest/
-│   │   └── FingerPrintTest.ino  # Fingerprint sensor test
-│   ├── KeyPadTesting/
-│   │   └── KeyPadTesting.ino  # Keypad input test
-│   ├── LCDTest/
-│   │   └── LCDTest.ino  # LCD display test
-└── README.md  # Project documentation
+🔹 How It Works
+1️⃣ Admin Login – The system starts in admin mode, requiring a PIN (0000) for access.
+2️⃣ Enrollment – Admin can register new voters by scanning and saving their fingerprints.
+3️⃣ Voting – Voters authenticate using their fingerprint and cast their vote.
+4️⃣ Vote Security – After voting, the system deletes the voter’s fingerprint to prevent re-voting.
+5️⃣ Results Display – Admin can check election results at any time.
 
 ## **🔹 How It Works**
 1️⃣ **Admin Login** – The system starts in admin mode, requiring a PIN (0000) for access.
