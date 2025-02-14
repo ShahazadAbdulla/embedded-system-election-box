@@ -2,7 +2,7 @@
 #include <LiquidCrystal_I2C.h>
 #include <Adafruit_Fingerprint.h>
 #include <Keypad.h>
-#include <SoftwareSerial.h>
+#include <EEPROM.h>  // EEPROM for storing voter data
 
 // LCD Setup
 LiquidCrystal_I2C lcd(0x27, 16, 2);  // Address 0x27, 16 cols, 2 rows
@@ -23,7 +23,7 @@ byte colPins[COLS] = {6, 7, 8, 9};
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
 #define BUZZER_LED_PIN 13    // Define the buzzer and LED pin (shared)
-#define GREEN_LED_PIN 12     // Define the Green LED pin (for successful voting)
+#define GREEN_LED_PIN 11     // Define the Green LED pin (for successful voting)
 
 int userID = 0;
 int votes[2] = {0, 0}; // Only two parties now
@@ -31,11 +31,15 @@ bool votedUsers[128] = {false}; // Track users who have voted
 
 // Push buttons for voting (Party A & B)
 #define PARTY_A_BUTTON 10
-#define PARTY_B_BUTTON 11
+#define PARTY_B_BUTTON 12
+
+#define EEPROM_VOTER_START 0  // Stores voting status per user (1 byte per ID)
+#define EEPROM_VOTES_A 200     // Stores votes for Party A
+#define EEPROM_VOTES_B 400     // Stores votes for Party B
 
 void setup() {
-  Serial.begin(9600);
   Serial.begin(57600); // Fingerprint sensor on Hardware Serial1
+  delay(3000);  
 
   pinMode(PARTY_A_BUTTON, INPUT_PULLUP);
   pinMode(PARTY_B_BUTTON, INPUT_PULLUP);
@@ -52,11 +56,9 @@ void setup() {
   lcd.clear();
 
   if (finger.verifyPassword()) {
-    Serial.println("Fingerprint sensor detected!");
     lcd.setCursor(0, 0);
     lcd.print("Fingerprint OK");
   } else {
-    Serial.println("Sensor NOT found!");
     lcd.setCursor(0, 0);
     lcd.print("Sensor ERROR!");
     while (1);
@@ -70,9 +72,8 @@ void loop() {
   lcd.setCursor(0, 0);
   lcd.print("A:Enroll B:Vote");
   lcd.setCursor(0, 1);
-  lcd.print("C:Results D:Exit");
+  lcd.print("C:Result D:Clear");
 
-  Serial.println("\nChoose: A (Enroll), B (Vote), C (Results), D (Exit)");
   char choice = waitForKeypress();
 
   if (choice == 'A') {
@@ -82,19 +83,14 @@ void loop() {
   } else if (choice == 'C') {
     displayResults();
   } else if (choice == 'D') {
-    Serial.println("Exiting...");
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Goodbye!");
-    delay(2000);
-    return;
+    clearElectionData();
   }
 }
 
 // ADMIN LOGIN
 void authenticateAdmin() {
   int attempts = 0;
-  while (attempts < 3) {
+  while (attempts < 11) {
     Serial.println("\nEnter PIN & Press D:");
     lcd.clear();
     lcd.setCursor(0, 0);
@@ -135,14 +131,38 @@ void authenticateAdmin() {
   delay(2000);
 }
 
-// ENROLL FINGERPRINT
+void clearElectionData() {
+  lcd.clear();
+  lcd.print("Clearing Data...");
+  delay(2000);
+
+  // Clear EEPROM (Reset stored voter data)
+  for (int i = 0; i < 128; i++) {
+    EEPROM.update(EEPROM_VOTER_START + i, 2);
+  }
+  EEPROM.put(EEPROM_VOTES_A, 0);
+  EEPROM.put(EEPROM_VOTES_B, 0);
+
+  // Clear Fingerprint Database
+  finger.emptyDatabase();
+
+  // Reset vote counts and voted user tracking
+  votes[0] = 0;
+  votes[1] = 0;
+  memset(votedUsers, false, sizeof(votedUsers));
+
+  
+  // Ensure LCD stays on properly
+  lcd.clear();
+  lcd.print("Data Cleared!");
+  delay(3000);  // Increased delay to prevent LCD flickering
+}
+
 void enrollFingerprint() {
   int enteredID = 0;
 
   while (true) {  
-    Serial.println("\nEnter ID (1-127) & D:");
     lcd.clear();
-    lcd.setCursor(0, 0);
     lcd.print("Enter ID:");
 
     String idInput = "";
@@ -150,8 +170,6 @@ void enrollFingerprint() {
       char c = waitForKeypress();
       if (c >= '0' && c <= '9') {
         idInput += c;
-        Serial.print(c);
-        lcd.setCursor(idInput.length(), 1);
         lcd.print(c);
       } else if (c == 'D') {
         break;
@@ -160,42 +178,43 @@ void enrollFingerprint() {
 
     enteredID = idInput.toInt();
     if (enteredID >= 1 && enteredID <= 127) {
-      Serial.print("\nSaving to ID: ");
-      Serial.println(enteredID);
+      if (finger.loadModel(enteredID) == FINGERPRINT_OK) {
+        lcd.clear();
+        lcd.print("ID Taken!");
+        delay(2000);
+        return;
+      }
       break;
     } else {
-      Serial.println("\nInvalid ID!");
       lcd.clear();
-      lcd.setCursor(0, 0);
       lcd.print("Invalid ID!");
       delay(2000);
     }
   }
 
   userID = enteredID;
-  Serial.println("Place finger...");
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Place Finger...");
-
   if (captureFingerprint(userID)) {
-    Serial.println("Fingerprints Matched! Saved.");
+    EEPROM.write(EEPROM_VOTER_START + userID, 0);
     lcd.clear();
-    lcd.setCursor(0, 0);
     lcd.print("Enroll Success!");
+    digitalWrite(GREEN_LED_PIN, HIGH);
     delay(2000);
+    digitalWrite(GREEN_LED_PIN, LOW);
   } else {
-    Serial.println("Enrollment Failed!");
     lcd.clear();
-    lcd.setCursor(0, 0);
     lcd.print("Enroll Failed!");
-    delay(2000);
+    for (int i = 0; i < 1; i++) {
+      digitalWrite(BUZZER_LED_PIN, HIGH);
+      delay(500);
+      digitalWrite(BUZZER_LED_PIN, LOW);
+      delay(500);
+    }
   }
 }
 
 // VOTING FUNCTION (WITH 3 CHANCES & WAITING FOR FINGERPRINT)
-
 void vote() {
+
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Verification");
@@ -205,23 +224,21 @@ void vote() {
   lcd.print("Place Finger");
   delay(1000);
 
-  int attempts = 5;  // Allow 5 attempts to recognize the fingerprint
+  int attempts = 4;  // Allow 5 attempts to recognize the fingerprint
   int voterID = -1;
 
   while (attempts > 0) {
     if ((voterID = matchFingerprint()) > 0) {
       break;
     }
-    Serial.println("Fingerprint NOT recognized! Try again.");
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("Try Again...");
+    lcd.print("Place Finger...");
     delay(2000);  // Wait for 2 seconds before retrying
     attempts--;
   }
 
   if (voterID == -1) {
-    Serial.println("No attempts left. Voting right lost.");
     
     // Trigger buzzer and red LED blinking if fingerprint is not recognized after 5 attempts
     for (int i = 0; i < 3; i++) {
@@ -242,7 +259,6 @@ void vote() {
   }
 
   if (votedUsers[voterID]) {
-    Serial.println("User already voted!");
 
     lcd.clear();
     lcd.setCursor(0, 0);
@@ -258,23 +274,28 @@ void vote() {
     return;
   }
 
-  Serial.println("Fingerprint matched! Vote now.");
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Press A or B");
 
   while (true) {
     if (digitalRead(PARTY_A_BUTTON) == LOW) {
+      EEPROM.get(EEPROM_VOTES_B, votes[1]);
+      EEPROM.get(EEPROM_VOTES_A, votes[0]);
       votes[0]++;
+      EEPROM.put(EEPROM_VOTES_A, votes[0]);
+      EEPROM.put(EEPROM_VOTES_B, votes[1]);
       break;
     } else if (digitalRead(PARTY_B_BUTTON) == LOW) {
+      EEPROM.get(EEPROM_VOTES_B, votes[1]);
       votes[1]++;
+      EEPROM.put(EEPROM_VOTES_B, votes[1]);
       break;
     }
   }
 
+  EEPROM.write(EEPROM_VOTER_START + voterID, 1); // Mark as voted
   votedUsers[voterID] = true;
-  Serial.println("Vote registered!");
   
   // Turn on the Green LED for successful voting
   lcd.clear();
@@ -290,46 +311,78 @@ void vote() {
 
 // DISPLAY RESULTS
 void displayResults() {
-  Serial.println("\n--- RESULTS ---");
+
+  int votesA = 0, votesB = 0;
+  EEPROM.get(EEPROM_VOTES_A, votesA);
+  EEPROM.get(EEPROM_VOTES_B, votesB);
+
+  int totalVoters = 0, votedUsers = 0;
+  for (int i = 1; i <= 127; i++) {
+    byte status = EEPROM.read(EEPROM_VOTER_START + i);
+    if (status == 0 || status == 1) totalVoters++; 
+    if (status == 1) votedUsers++; 
+  }
+
+  int pendingVoters = totalVoters - votedUsers;
+
   lcd.clear();
   lcd.setCursor(0, 0);
+  lcd.print("Enrl:");
+  lcd.print(totalVoters);
+  lcd.setCursor(8, 0);
+  lcd.print("Vot:");
+  lcd.print(votedUsers);
+  lcd.setCursor(0, 1);
+  lcd.print("Pend:");
+  lcd.print(pendingVoters);
+  delay(4000);
+
+  lcd.clear();
   lcd.print("A:");
-  lcd.print(votes[0]);
+  lcd.print(votesA);
   lcd.setCursor(8, 0);
   lcd.print("B:");
-  lcd.print(votes[1]);
-  delay(5000);
+  lcd.print(votesB);
+  delay(4000);
+
 }
 
 // CAPTURE FINGERPRINT (Enhanced with Retry & Proper Storage)
 bool captureFingerprint(int id) {
   int p;
 
-  Serial.println("Waiting for finger...");
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Place Finger...");
 
-  // Step 1: Capture first fingerprint scan
-  while ((p = finger.getImage()) != FINGERPRINT_OK);
-  p = finger.image2Tz(1);
-  if (p != FINGERPRINT_OK) return false;
+  // Step 1: Capture first fingerprint scan (keep trying until successful)
+  while (true) {
+    p = finger.getImage();
+    if (p == FINGERPRINT_OK) {
+      p = finger.image2Tz(1);
+      if (p == FINGERPRINT_OK) break;  // Proceed to the next step
+    }
+    delay(1000);  // Wait 1 second before retrying
+  }
 
-  Serial.println("Remove finger...");
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Remove Finger...");
+  lcd.print("Wait...");
   delay(2000);
 
-  Serial.println("Place the same finger again...");
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Place Again...");
 
-  // Step 2: Capture second fingerprint scan
-  while ((p = finger.getImage()) != FINGERPRINT_OK);
-  p = finger.image2Tz(2);
-  if (p != FINGERPRINT_OK) return false;
+  // Step 2: Capture second fingerprint scan (keep trying until successful)
+  while (true) {
+    p = finger.getImage();
+    if (p == FINGERPRINT_OK) {
+      p = finger.image2Tz(2);
+      if (p == FINGERPRINT_OK) break;  // Proceed to model creation
+    }
+    delay(1000);  // Wait 1 second before retrying
+  }
 
   // Create the fingerprint model
   if (finger.createModel() != FINGERPRINT_OK) return false;
@@ -339,6 +392,7 @@ bool captureFingerprint(int id) {
 
   return true;
 }
+
 
 int matchFingerprint() {
   if (finger.getImage() != FINGERPRINT_OK) return -1;
