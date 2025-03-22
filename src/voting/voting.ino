@@ -3,12 +3,15 @@
 #include <Adafruit_Fingerprint.h>
 #include <Keypad.h>
 #include <EEPROM.h>  // EEPROM for storing voter data
+#include <SoftwareSerial.h>  // Include the SoftwareSerial library
 
 // LCD Setup
 LiquidCrystal_I2C lcd(0x27, 16, 2);  // Address 0x27, 16 cols, 2 rows
 
+SoftwareSerial mySerial(2, 3);  // RX, TX pins for software serial
+
 // Fingerprint Sensor Setup (Hardware Serial on 0 & 1)
-Adafruit_Fingerprint finger = Adafruit_Fingerprint(&Serial);
+Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 
 // Keypad Setup
 const byte ROWS = 4, COLS = 4;
@@ -18,34 +21,39 @@ char keys[ROWS][COLS] = {
   {'7', '8', '9', 'C'},
   {'*', '0', '#', 'D'}  // 'D' is Enter
 };
-byte rowPins[ROWS] = {2, 3, 4, 5};
-byte colPins[COLS] = {6, 7, 8, 9};
+byte rowPins[ROWS] = {11, 10, 9, 8};
+byte colPins[COLS] = {7, 6, 5, 4};
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
-#define BUZZER_LED_PIN 13    // Define the buzzer and LED pin (shared)
-#define GREEN_LED_PIN 11     // Define the Green LED pin (for successful voting)
+#define BUZZER_LED_PIN 13   // Define the buzzer and LED pin (shared)
+#define GREEN_LED_PIN A2    // Define the Green LED pin (for successful voting)
+#define BUZZ2_PIN A1
 
 int userID = 0;
-int votes[2] = {0, 0}; // Only two parties now
+int votes[3] = {0, 0, 0}; // Only 3 parties now
 bool votedUsers[128] = {false}; // Track users who have voted
 
 // Push buttons for voting (Party A & B)
-#define PARTY_A_BUTTON 10
-#define PARTY_B_BUTTON 12
+#define PARTY_A_BUTTON 12
+#define PARTY_B_BUTTON A3
+#define PARTY_C_BUTTON A0
 
 #define EEPROM_VOTER_START 0  // Stores voting status per user (1 byte per ID)
 #define EEPROM_VOTES_A 200     // Stores votes for Party A
 #define EEPROM_VOTES_B 400     // Stores votes for Party B
+#define EEPROM_VOTES_C 600     // Stores votes for Party B
 
 void setup() {
-  Serial.begin(57600); // Fingerprint sensor on Hardware Serial1
+  mySerial.begin(57600); // Fingerprint sensor on Hardware Serial1
   delay(3000);  
 
   pinMode(PARTY_A_BUTTON, INPUT_PULLUP);
   pinMode(PARTY_B_BUTTON, INPUT_PULLUP);
+  pinMode(PARTY_C_BUTTON, INPUT_PULLUP);
 
   pinMode(BUZZER_LED_PIN, OUTPUT); 
   pinMode(GREEN_LED_PIN, OUTPUT);
+  pinMode(BUZZ2_PIN, OUTPUT);
 
   lcd.init();
   lcd.backlight();
@@ -142,6 +150,7 @@ void clearElectionData() {
   }
   EEPROM.put(EEPROM_VOTES_A, 0);
   EEPROM.put(EEPROM_VOTES_B, 0);
+  EEPROM.put(EEPROM_VOTES_C, 0);
 
   // Clear Fingerprint Database
   finger.emptyDatabase();
@@ -198,8 +207,10 @@ void enrollFingerprint() {
     lcd.clear();
     lcd.print("Enroll Success!");
     digitalWrite(GREEN_LED_PIN, HIGH);
+    digitalWrite(BUZZ2_PIN, HIGH); // Turn buzzer ON
     delay(2000);
     digitalWrite(GREEN_LED_PIN, LOW);
+    digitalWrite(BUZZ2_PIN, LOW); // Turn buzzer OFF
   } else {
     lcd.clear();
     lcd.print("Enroll Failed!");
@@ -276,7 +287,7 @@ void vote() {
 
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Press A or B");
+  lcd.print("A or B or C");
 
   while (true) {
     if (digitalRead(PARTY_A_BUTTON) == LOW) {
@@ -291,6 +302,11 @@ void vote() {
       votes[1]++;
       EEPROM.put(EEPROM_VOTES_B, votes[1]);
       break;
+    } else if (digitalRead(PARTY_C_BUTTON) == LOW) {  
+      EEPROM.get(EEPROM_VOTES_C, votes[2]);
+      votes[2]++;
+      EEPROM.put(EEPROM_VOTES_C, votes[2]);
+      break;
     }
   }
 
@@ -301,9 +317,11 @@ void vote() {
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Vote Success!");
-  digitalWrite(GREEN_LED_PIN, HIGH);  
+  digitalWrite(GREEN_LED_PIN, HIGH); 
+  digitalWrite(BUZZ2_PIN, HIGH);  
   delay(2000); // Keep the green LED on for 2 seconds to indicate success
   digitalWrite(GREEN_LED_PIN, LOW);  // Turn off the green LED after 2 seconds
+  digitalWrite(BUZZ2_PIN, LOW); 
 
 }
 
@@ -312,9 +330,10 @@ void vote() {
 // DISPLAY RESULTS
 void displayResults() {
 
-  int votesA = 0, votesB = 0;
+  int votesA = 0, votesB = 0, votesC = 0;;
   EEPROM.get(EEPROM_VOTES_A, votesA);
   EEPROM.get(EEPROM_VOTES_B, votesB);
+  EEPROM.get(EEPROM_VOTES_C, votesC);
 
   int totalVoters = 0, votedUsers = 0;
   for (int i = 1; i <= 127; i++) {
@@ -337,13 +356,16 @@ void displayResults() {
   lcd.print(pendingVoters);
   delay(4000);
 
-  lcd.clear();
-  lcd.print("A:");
-  lcd.print(votesA);
-  lcd.setCursor(8, 0);
-  lcd.print("B:");
-  lcd.print(votesB);
-  delay(4000);
+    lcd.clear();
+    lcd.print("A:");
+    lcd.print(votesA);
+    lcd.setCursor(6, 0);
+    lcd.print("B:");
+    lcd.print(votesB);
+    lcd.setCursor(12, 0);
+    lcd.print("C:");
+    lcd.print(votesC);
+    delay(4000);
 
 }
 
